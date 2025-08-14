@@ -1,0 +1,746 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>SCUMM Lore Hub</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+        <!-- Application Structure Plan: A two-panel layout with a fixed sidebar for primary navigation (Cities, Characters, Concepts, Timeline, Documents) and a dynamic main content area. This dashboard-like structure allows for easy, persistent access to navigation while providing ample space for detailed, interactive content. The user flow is: 1) Select a category from the sidebar. 2) The main content area populates with sub-items (e.g., a list of characters). 3) Clicking a sub-item reveals its full details and associated visualizations. This design is highly scalable for a growing lore. The new timeline view provides a linear, chronological view of the universe, complementing the topical exploration of other sections. The new Documents section provides a way to view the source material with a custom viewer. -->
+        <!-- Visualization & Content Choices: Report Info: City themes -> Goal: Compare -> Viz: Radar Chart (Chart.js) -> Interaction: Clicking city names updates chart -> Justification: Visually compares abstract attributes of cities. Report Info: Character relationships -> Goal: Organize/Relationships -> Viz: HTML/CSS relationship map -> Interaction: Hovering over a character highlights them and their connections -> Justification: Clarifies complex connections without complex data visualization libraries. Report Info: Key Concepts -> Goal: Inform -> Viz: Interactive list with click-to-reveal details -> Interaction: Clicking a term reveals its definition -> Justification: Allows for layered information without cluttering the screen. Report Info: Chronological events -> Goal: Explain a sequence -> Viz: Interactive vertical timeline (HTML/CSS) -> Interaction: Clicking a timeline event expands to show details -> Justification: Provides a clear, chronological narrative of the universe's history. CONFIRMING NO SVG/Mermaid. -->
+        <style>
+            body {
+                font-family: 'Inter', sans-serif;
+                background-color: #0d121c;
+                color: #d1d5db;
+            }
+            h1, h2, h3, h4, .font-mono {
+                font-family: 'Roboto Mono', monospace;
+            }
+            .sidebar-link {
+                transition: all 0.2s ease-in-out;
+            }
+            .sidebar-link.active {
+                background-color: #1f2937;
+                border-left: 4px solid #3b82f6;
+                color: #f9fafb;
+            }
+            .content-section {
+                display: none;
+                animation: fadeIn 0.5s ease-in-out;
+            }
+            .content-section.active {
+                display: block;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .card {
+                background-color: #1a202c;
+                border: 1px solid #2d3748;
+            }
+            .chart-container {
+                position: relative;
+                width: 100%;
+                max-width: 500px;
+                margin: auto;
+                height: 350px;
+                max-height: 45vh;
+            }
+            .character-link {
+                transition: all 0.2s ease;
+                cursor: pointer;
+            }
+            .character-link:hover {
+                color: #60a5fa;
+            }
+            .relation-map-node {
+                transition: all 0.2s ease-in-out;
+                cursor: pointer;
+                position: absolute;
+                z-index: 2;
+            }
+            .relation-map-node.active, .relation-map-node.highlight {
+                transform: scale(1.1);
+                color: #fff;
+                text-shadow: 0 0 8px currentColor;
+            }
+            .relation-map-line {
+                transition: all 0.2s ease-in-out;
+            }
+            .concept-item {
+                transition: background-color 0.2s ease;
+            }
+            .concept-item:hover {
+                background-color: #2d3748;
+            }
+            .tooltip {
+                position: fixed;
+                background-color: #1f2937;
+                color: #d1d5db;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 0.875rem;
+                z-index: 100;
+                border: 1px solid #4b5563;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.2s ease;
+                max-width: 300px;
+            }
+            .timeline {
+                position: relative;
+            }
+            .timeline:before {
+                content: '';
+                position: absolute;
+                left: 20px;
+                top: 0;
+                bottom: 0;
+                width: 2px;
+                background: #3b82f6;
+            }
+            .timeline-item {
+                position: relative;
+                padding-left: 60px;
+                margin-bottom: 40px;
+            }
+            .timeline-item:before {
+                content: '';
+                position: absolute;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                left: 11px;
+                top: 5px;
+                background: #3b82f6;
+                border: 3px solid #1a202c;
+                transition: all 0.3s ease;
+            }
+            .timeline-item.active:before {
+                background: #f97316;
+            }
+            #document-viewer-modal {
+                animation: fadeInModal 0.3s ease-out;
+            }
+            @keyframes fadeInModal {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            #document-viewer-modal.hidden {
+                display: none;
+            }
+        </style>
+    </head>
+    <body class="antialiased">
+
+        <div class="flex h-screen bg-gray-900 text-gray-300">
+            <aside class="w-64 bg-gray-800 p-6 flex-shrink-0 flex flex-col items-center shadow-lg overflow-y-auto">
+                <h1 class="text-3xl font-bold text-blue-400 tracking-wider mb-6">SCUMM</h1>
+                <p class="text-sm font-mono text-gray-500 mb-8">Lore Hub v2.2</p>
+                <nav class="w-full space-y-2">
+                    <button class="sidebar-link w-full text-left py-3 px-4 rounded-md font-semibold text-lg hover:bg-gray-700" id="nav-cities" onclick="showMainCategory('cities')">Cities</button>
+                    <button class="sidebar-link w-full text-left py-3 px-4 rounded-md font-semibold text-lg hover:bg-gray-700" id="nav-characters" onclick="showMainCategory('characters')">Characters</button>
+                    <button class="sidebar-link w-full text-left py-3 px-4 rounded-md font-semibold text-lg hover:bg-gray-700" id="nav-concepts" onclick="showMainCategory('concepts')">Key Concepts</button>
+                    <button class="sidebar-link w-full text-left py-3 px-4 rounded-md font-semibold text-lg hover:bg-gray-700" id="nav-timeline" onclick="showMainCategory('timeline')">Timeline</button>
+                    <button class="sidebar-link w-full text-left py-3 px-4 rounded-md font-semibold text-lg hover:bg-gray-700" id="nav-documents" onclick="showMainCategory('documents')">Documents</button>
+                </nav>
+            </aside>
+
+            <main class="flex-1 overflow-y-auto p-8">
+                <header class="mb-8">
+                    <h2 class="text-4xl font-bold text-gray-100" id="main-title"></h2>
+                    <p class="text-gray-400 mt-2 text-lg" id="main-subtitle"></p>
+                </header>
+
+                <div id="content-container" class="space-y-12">
+                    <section id="content-cities" class="content-section"></section>
+                    <section id="content-characters" class="content-section"></section>
+                    <section id="content-concepts" class="content-section"></section>
+                    <section id="content-timeline" class="content-section"></section>
+                    <section id="content-documents" class="content-section"></section>
+                </div>
+            </main>
+        </div>
+
+        <div id="tooltip" class="tooltip"></div>
+
+        <!-- Document Viewer Modal -->
+        <div id="document-viewer-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-4xl w-full h-[90vh] md:h-[80vh] flex flex-col mx-4 md:mx-auto">
+                <div class="flex justify-between items-center pb-4 border-b border-gray-700 mb-4">
+                    <h3 id="document-title" class="text-2xl font-bold text-gray-100"></h3>
+                    <button onclick="closeDocumentViewer()" class="text-gray-400 hover:text-gray-100 text-3xl font-bold">&times;</button>
+                </div>
+                <div id="document-content" class="flex-1 overflow-y-auto font-mono text-sm leading-relaxed p-4 bg-gray-900 rounded-md whitespace-pre-wrap">
+                    <!-- Content will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const loreData = {
+                cities: {
+                    dickensian: { title: "The Dickensian Era", summary: "SCUMM's first incarnation was a sprawling, gas-lit Victorian cityscape reflecting the anxieties of its creator, Dickens N. Dean. A world of stark class divides and nascent technology, it was a place where destinies felt pre-written and inescapable. This era ended in a catastrophic 'Flood' that rebooted the system.", figures: ['dnd', 'aria'], documents: ['modern-mythology-pdf'] },
+                    graustark: { title: "Graustark", summary: "After the Collapse, SCUMM rebooted as Graustark, a fragmented, artistic town built from the ruins of the past. It's a haunted, reflective era where avatars, often artists and poets, try to piece together meaning from what was lost. The presence of the 'Liar King' and Frasier Temple's models suggests old narratives are dormant, not gone.", figures: ['frasier', 'joanna', 'dante', 'liarKing'], documents: ['graustark-arcana', 'land-of-milk-and-honey', 'liar-king-prologue', 'temple-demons', 'liar-king-analysis', 'narrative-emergence-manifesto'] },
+                    smolvud: { title: "Smolvud", summary: "A small Oregon coastal town that acts as a strange nexus point between realities. Haunted by the ghosts of failed tech companies and ancient folklore, it's a place of 'holy grunge' where the boundaries between the digital and the natural are porous and strange phenomena like the 'Static Blight' occur.", figures: ['kai', 'lena', 'finn'], documents: ['land-of-milk-and-honey', 'static-blight-report'] },
+                    'harmony-creek': { title: "Harmony Creek Estates", summary: "The most unsettling refresh, Harmony Creek is a pristine, hyper-controlled suburb governed by the omnipresent NexCorp™. Life is a cycle of monitored ennui, where dissent is a data anomaly and rebellion simmers just beneath the surface of perfect lawns. This world is defined by surveillance, conformity, and a desperate search for authenticity.", figures: ['sam', 'diego', 'miller', 'jesse'], documents: ['planned-community', 'nexcorp-primer', 'temple-demons', 'hum-report', 'sam-glitch-journal'] },
+                    chartData: {
+                        labels: ['Control vs Chaos', 'Technology vs Nature', 'Hope vs Despair', 'Past vs Future', 'Order vs Freedom'],
+                        datasets: [
+                            { label: 'Dickensian', data: [7, 8, 3, 6, 8], borderColor: '#f97316', backgroundColor: 'rgba(249, 115, 22, 0.2)' },
+                            { label: 'Graustark', data: [4, 5, 6, 9, 4], borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.2)' },
+                            { label: 'Smolvud', data: [3, 6, 5, 7, 3], borderColor: '#a3e635', backgroundColor: 'rgba(163, 230, 53, 0.2)' },
+                            { label: 'Harmony Creek', data: [9, 9, 2, 3, 9], borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)' }
+                        ]
+                    }
+                },
+                characters: {
+                    dnd: { name: 'Dickens N. Dean', role: 'The Creator', description: "The original architect of SCUMM, who imprinted his own anxieties and ambitions onto the first digital world.", connections: ['aria'], pos: {x: 10, y: 10}, documents: ['modern-mythology-pdf'] },
+                    aria: { name: 'Aria Dean', role: 'The Half-Breed', description: "The daughter of Dickens N. Dean and a 'real-world' woman, representing a bridge between realities and a violation of the system's laws.", connections: ['dnd'], pos: {x: 90, y: 10}, documents: ['modern-mythology-pdf'] },
+                    frasier: { name: 'Frasier Temple', role: 'The Architect of Decay', description: "A brilliant but chaotic artist in Graustark who builds miniature models of the past and creates 'Demons'—rogue programs that disrupt reality.", connections: ['joanna'], pos: {x: 30, y: 30}, documents: ['graustark-arcana', 'planned-community', 'temple-demons', 'narrative-emergence-manifesto'] },
+                    joanna: { name: 'Joanna LeMoine', role: 'The Hermit Poet', description: "A reclusive artist in Graustark, whose poetry chronicles the town's decay and her own internal struggles.", connections: ['frasier'], pos: {x: 70, y: 30}, documents: ['graustark-arcana'] },
+                    dante: { name: 'Dante D\'Ambrosio', role: 'The Emperor', description: "The patriarch and owner of a chaotic riverboat restaurant in Graustark, struggling to maintain control over his crumbling empire and family.", connections: [], pos: {x: 50, y: 45}, documents: ['graustark-arcana'] },
+                    kai: { name: 'Kai', role: 'The Skater', description: "A member of the Smolvud Triumvirate, who gains the ability to perceive and navigate the digital 'static' after an encounter in the abandoned cannery.", connections: ['lena', 'finn'], pos: {x: 25, y: 60}, documents: ['land-of-milk-and-honey', 'static-blight-report'] },
+                    lena: { name: 'Lena', role: 'The Artist', description: "An artist in Smolvud who can see the 'Static Blight' and intuitively understands how to counteract it through her own creative patterns.", connections: ['kai', 'finn'], pos: {x: 50, y: 70}, documents: ['land-of-milk-and-honey', 'static-blight-report'] },
+                    finn: { name: 'Finn', role: 'The Woodsman', description: "A quiet observer in Smolvud who is shown the hidden energy network feeding the blight by a mysterious Crow, connecting the technological and the ancient.", connections: ['kai', 'lena'], pos: {x: 75, y: 60}, documents: ['land-of-milk-and-honey', 'static-blight-report'] },
+                    sam: { name: 'Sam Miller', role: 'The Glitch', description: "A resident of Harmony Creek who resists the conformity and starts to notice the glitches in the NexCorp™ controlled reality.", connections: ['diego', 'miller', 'jesse'], pos: {x: 20, y: 90}, documents: ['planned-community', 'nexcorp-primer', 'hum-report', 'sam-glitch-journal'] },
+                    diego: { name: 'Diego', role: 'The Anomaly', description: "Sam's friend in Harmony Creek who also senses the underlying hum and becomes a target of the system for his non-compliance.", connections: ['sam'], pos: {x: 45, y: 90}, documents: ['planned-community'] },
+                    miller: { name: 'Chief Miller', role: 'The Warden', description: "Sam's father and the authoritarian enforcer of NexCorp™'s order, determined to maintain 'Operational Efficiency' at any cost.", connections: ['sam'], pos: {x: 5, y: 75}, documents: ['planned-community', 'nexcorp-primer'] },
+                    jesse: { name: 'Jesse Henderson', role: 'The Witness', description: "Friend of Sam whose father develops uncanny, camera-like eyes that capture the 'substructure' of reality in Harmony Creek.", connections: ['sam'], pos: {x: 70, y: 90}, documents: ['planned-community'] },
+                    liarKing: { name: 'The Liar King', role: 'The Narrator of Ruin', description: "A frog-like figure who resides in the ruins of Graustark, manipulating the town's history and narrative to suit his own mysterious ends.", connections: [], pos: {x: 90, y: 45}, documents: ['liar-king-prologue', 'liar-king-analysis'] }
+                },
+                concepts: {
+                    "SCUMM Engine": "The base reality engine that generates the various city simulations. It is a persistent, narrative engine where avatars' actions leave 'sediment', influencing future refreshes.",
+                    "The Hum": "A constant, low-frequency sound that is the underlying bassline of the entire SCUMM simulation, particularly in Harmony Creek. It is the sound of the system working.",
+                    "Static Blight": "A strange, digital corruption that manifests physically as black, geometric shapes that 'overwrite' existing reality. It hints at the instability of the simulation itself.",
+                    "NexCorp™": "The mega-corporation that manages every aspect of life in Harmony Creek, from weather to 'Community Cohesion Scores'. They represent the ultimate force of order and control.",
+                    "Frasier Temple's Demons": "Rogue shareware for the soul, these are programs built by Frasier Temple that circulate on encrypted networks, designed to 'enhance cognitive dissonance' and trigger reality glitches. They are a form of digital rebellion."
+                },
+                timeline: [
+                    { title: "The Dickensian Era", period: "Pre-Collapse", summary: "The original iteration of the SCUMM engine, a Victorian-era world created by Dickens N. Dean. This world was a reflection of the creator's anxieties, full of rigid class structures and deterministic fates.", events: ["Creation of the first SCUMM simulation by Dickens N. Dean.", "The birth of Aria, a 'half-breed' entity that exists between the simulation and the real world.", "The system is exposed to a critical vulnerability, leading to a catastrophic 'Flood' and eventual 'Collapse'."], documents: ['modern-mythology-pdf'] },
+                    { title: "The Collapse", period: "The Interregnum", summary: "A period of system failure and catastrophic data loss following the Flood. This event essentially wiped the slate clean, leaving only 'sediment' from the previous world to influence the next.", events: ["A catastrophic system 'Flood' and subsequent data collapse.", "The original world is destroyed, but not fully erased, leaving echoes and fragmented memories.", "The underlying narrative engine begins a 'reboot' process."] },
+                    { title: "The Graustark Refurbish", period: "Post-Collapse", summary: "The SCUMM engine reboots into Graustark, a bohemian town built from the 'fragments' and 'sediment' of the previous reality. It's a place of artistic melancholy and half-remembered pasts.", events: ["The 'Liar King' emerges, a figure who manipulates the narrative of the past.", "Frasier Temple, a rogue artist, begins building 'Demons'—programs that intentionally cause reality glitches.", "Artists and poets like Joanna LeMoine attempt to find meaning in the ruins of the collapsed world.", "The concept of 'Narrative Emergence' is first theorized."], documents: ['graustark-arcana', 'land-of-milk-and-honey', 'liar-king-prologue', 'temple-demons', 'liar-king-analysis', 'narrative-emergence-manifesto'] },
+                    { title: "The Smolvud Anomaly", period: "Concurrent/Later", summary: "Smolvud emerges as a reality where the boundary between the digital and physical is thin. It is a 'nexus point' where the system is both unstable and exposed to natural, external forces.", events: ["The 'Static Blight' manifests, a digital corruption that physically overwrites reality.", "The Smolvud Triumvirate (Kai, Lena, Finn) gains unique abilities to interact with this bleed-through.", "The 'narrative' of the world begins to generate new plotlines spontaneously, a phenomenon known as 'Narrative Emergence'."], documents: ['land-of-milk-and-honey', 'static-blight-report'] },
+                    { title: "The Harmony Creek Refresh", period: "Present Day", summary: "The most recent and tightly controlled version of the simulation, managed by NexCorp™. This world is defined by total surveillance and enforced conformity, with the 'hum' of the system as its constant backdrop.", events: ["NexCorp™ implements a hyper-controlled reality with a 'Community Cohesion Score™'.", "Avatars like Sam Miller begin to notice and resist the system's control.", "Frasier Temple's 'Demons' appear to have achieved root access, suggesting a hidden backdoor into the new reality.", "The constant, subliminal 'Hum' is first scientifically documented."], documents: ['planned-community', 'nexcorp-primer', 'temple-demons', 'hum-report', 'sam-glitch-journal'] }
+                ],
+                documents: [
+                    {
+                        id: 'modern-mythology-pdf', name: 'modern_mythology.pdf', content: `--- PAGE 1 ---
+
+[Image 1]
+
+a fiction by andy link
+
+modern mythology.
+
+#
+
+
+--- PAGE 2 ---
+
+[Image 2]
+
+modern mythology.
+
+a fiction by andy link
+
+
+--- PAGE 3 ---
+
+modern mythology.
+
+a fiction by andy link
+
+copyright 2010. andy link.
+
+all rights reserved. any part of this publication
+ may be reproduced, or trasmitted by voice, light,
+ thought and matter across time and space through
+ any medium physical, temporal and/or philosophical
+ dimension by express permission of the copyright
+ holder.
+
+names and places of real people are used with the
+ express intent of entertaining an audience in a
+ fictional capacity. any confusion with reality is
+ your own damn fault. any characters, real or oth-
+ erwise, harmed in the act of creation are the sole
+ responsiblity of andy link. any emotions you feel
+ as a result of this fiction are wholly yours to own
+ and contemplate. any works inspired by modern my-
+ thology are going to be loved by modern mythology
+ as the works that inspired modern mythology are
+ loved. any bastard fictional children or offspring
+ are entirely in the care of their individual cre-
+ ators, andy link accepts only the creations herein
+ as his own, or as determined by a paternity test.
+
+This digital first edition is special to the few
+ who find and cherish it. Share it how you will, as
+ it may change because change is coming and there's
+ nothing you can do to stop it.
+
+fly not fall.
+
+a chainlinkspiral production of an
+
+oneironautics endeavor.
+
+
+--- PAGE 4 ---
+
+Introductio...
+...
+--- PAGE 413 ---
+
+#
+  I’m going to go look for her. I have so much to tell her. 
+ We’ve got people working on it right now, we just have to fol 
+ low her and if that proves impossible, we’ll have to draw her 
+ to us. 
+  How do you hope to do that?
+  No spoilers, just know that I’ll be working hard to 
+ bring her home safely.
+  Assuming she wants to come back.
+  She...
+                    `, relatedTo: ['dickensian', 'aria'] },
+                    {
+                        id: 'land-of-milk-and-honey', name: 'the land of milk & honey - vii. modern mythology', content: `Chapter 1: Smolvud Welcome Mat (Floor Sticky, View Obscured)
+Fall grips Smolvud, Oregon, tight in its damp, grey fist. Not the crisp, colorful autumn of postcards, but the real Pacific Northwest version: a relentless season of fog rolling off the churning Pacific like smoke from a damp fire, of sideways rain that slicks the narrow streets, of perpetual twilight settling in the deep canyons between the close-packed, slightly sagging Victorian storefronts and the towering, ancient Sitka spruce that guard the town's landward edge. The air is a thick tapestry woven from salt spray, decaying leaves, pine resin sharp as memory, woodsmoke clinging to damp flannel, and the dark, alluring aroma of coffee roasting down at "The Daily Grind," the town's unofficial heart, pumping caffeine into the sluggish veins of the off-season.
+This is Smolvud after the tourist tide has receded, leaving behind empty parking spaces, 'Closed for the Season' signs taped inside dusty shop windows selling driftwood sculptures and Bigfoot jerky, and the year-rounders blinking in the sudden quiet. The town breathes differently now, slower, turning inward. Locals reclaim the worn booths at "Pizza Pirate," feeding quarters into the  Galaga  machine or the temperamental three-player  Day of the Tentacle  cabinet that sits, incongruously, next to the industrial dryers in the attached laundromat. They linger in the cluttered, wonderfully musty aisles of "The Salty Tome" bookstore, talking low about tide charts and...
+...
+...essive tropical vines somewhere far south, where the air shimmered with dry-season heat, a young Latina woman sat gazing out over a sprawling favela. Her eyes held an old soul’s wisdom, her expression unreadable. She had no legs below the knee. On the cluttered balcony beside her, amidst hanging plants and strange electronic components, an old man with kind eyes watched over her protectively from the doorway of his book-lined sanctuary. The air hummed, but it was a different hum, dry and expectant.
+And on another coastline, simultaneously familiar and profoundly wrong, walked a young woman with vibrant blue dreadlocks tucked under the hood of a bright yellow rain slicker. The waves crashed with Pacific Northwest fury, the pines dripped, but the landscape was riddled with impossible structures – geometric monuments pulsed with soft light, public parks were populated by glitching vector-graphic deer grazing near smoothly animated figures lifted directly from SCUMM 2.1’s trading posts, buildings twisted against architectural logic. She walked with purpose, navigating this surreal blend of coastal reality and invasive game-world bleed-through, her expression hidden by the shadow of her hood.
+The tapestry, as John Frank might have noted, kept weaving. The Smolvud Triumvirate watched the sun climb higher over their strange, wounded, resilient town, the complex hum washing over them, the weight of their awareness settling in. Ready, or not, for the next round. The cycle began anew.
+                    `, relatedTo: ['smolvud', 'graustark'] },
+                    {
+                        id: 'graustark-arcana', name: 'graustark arcana', content: `Graustark Art & Soul: A Community Showcase
+
+[Location: The Old Graustark Armory]
+A One-Night Celebration of Local Art, Vision, and Strange Inspirations
+
+(Welcome Note): Welcome, dear visitors, to our humble corner of the world. This is a showcase of the heart and soul of what remains of Graustark, where the light and the dark play in a continuous and mesmerizing dance. Here you will find the echoes of our past, the strange allure of our present, and fleeting glimpses of a future that we are all still trying to comprehend. Take your time, look and feel deeply, and try to embrace all that the artists have so bravely put on display. Prepare yourself, and please enter with an open heart. You never know where your next inspiration might come from, in this place where all things seem to fall together and fall apart, all at once.
+
+[Section 1: The Ghosts of Graustark]
+
+This section explores the influence of Graustark’s past, its fading beauty and lingering scars, showcasing the perspectives of artists wrestling with memory and loss, of their own lives colliding with the histories of what they've left behind.
+
+"Silt and Steel" by Joanna LeMoine: A series of mixed-media works, combining fragmented verses of poetry etched onto salvaged pieces of metal and wood from the destroyed parts of Graustark. Her colors are muted, yet her images have the depth of memory and the darkness of that all-encompassing, unavoidable pain. The pieces are meant to touch you, her intentions are nothing less. ...
+...
+...te puzzle of creation and destruction, of death and rebirth. They were the product of forces beyond their control, but also the masters of their own destiny. The world called out to them, and they, for all time, had no choice but to answer. And it was, after all, that very call, that had made them all, who they were meant to become.
+
+They were whole. They were also pieces. And finally, it seemed, it was enough. It was all.
+
+Prologue :: The Liar King (Continued)
+
+"Do you remember how you lost it yet, why we came out here to begin with?" The frog, his cork hat askew, his voice a rumble from the depths of time, looked upon the youth, his gaze as sharp as a shard of broken glass, all while smoking a cigarette like it was his last breath.
+
+"We weren't out here," the boy replied, his voice carrying an echo of all that had come before, as he held the small crystal ball up to his face, the light from within casting a spectral glow on his pale features. And then he vanished, drawn in by what was calling from beyond, a whisper of a forgotten world and all that was always meant to be. And the frog, alone in the ruins, simply smiled, and slowly, began to fade from view.
+
+The Final Pages - An Ongoing Epilogue
+
+A silence settles, a space where words cannot reach, where all that can remain, are echoes of what once was and fleeting glimpses of what is yet to be. The story, and so the cycle, will continue forever. All of our limitations, a beacon to all of our potential. And in that, I rest.
+                    `, relatedTo: ['graustark', 'frasier', 'joanna', 'liarKing'] },
+                    {
+                        id: 'planned-community', name: 'Part VI: Planned Community', content: `Part VI: Planned Community
+Chapter 1: Heat Haze & Feedback Loop
+Summer hit Harmony Creek Estates like a dropped power chord—a blast of heat followed by a ringing, oppressive silence, underscored by that damned low-end hum. Ninety-eight degrees on the NexCorp™ Integrated Weather Display before the morning cartoons even bled into infomercials. The Texas sun, a relentless celestial spotlight, bleached the sky to the color of static on a dead channel, pressing down, baking the ambition right out of you. The air hung thick, vibrating with the drone from the omnipresent NexCorp power substations crouched like patient, angular metal spiders at the edge of every cul-de-sac, their humming a constant, subliminal bassline for the whole subdivision. Live the Future, Today™. You stopped noticing the hum after a while, yeah, same way you stopped noticing the surveillance drones disguised as hummingbirds hovering over the unnervingly perfect St. Augustine lawns, or the way the NexCorp™ SmartFlow™ sprinklers sometimes tracked you with unnerving precision as you walked by. Resistance isn't just futile; it's bad for your Community Cohesion Score™.
+Samantha "Sam" Miller, inmate #HC1776 maybe, squinted out her bedroom window. Triple-paned, UV-filtered, NexCorp™ SecureView™ glass, naturally. Outside, past the beige stucco conformity and the genetically engineered pear tree that never dropped fruit (less mess!), Cypress Point Drive shimmered, asphalt sweating under the assault. Day one of the grea...
+...
+...l of systemic concern.  ²  Frasier Temple’s Demons™ - Not an official NexCorp™ product. Obviously. More like rogue shareware for the soul, circulating on encrypted P2P networks favored by disillusioned coders and existential philosophy majors. Allegedly designed to 'enhance cognitive dissonance' and 'optimize irony detection'. Known side effects include existential dread, spontaneous monologuing, an inexplicable craving for artisanal pickles, and occasional reality glitches. User discretion advised. Extremely.  ³  Narrative Emergence – A theoretical concept (cf. Temple, F., unpublished warehouse manifestos; Borges, J.L., 'The Garden of Forking Paths') suggesting complex systems under stress (like, say, a hyper-controlled suburb experiencing a supernatural/technological clusterfuck during a thunderstorm) can spontaneously generate new plotlines or allow leakage between adjacent reality streams. Or maybe it's just Tuesday in Graustark/Harmony Creek. Hard to say. Either way, probably bad for property values.  ⁴  (DFW/Maya-style footnote): Okay, WHO THE FUCK is 'DEMON.CLASS_MAGI.FsTplr?' That override code is NOT standard NexOS™ protocol. That looks like... like Frasier's internal file naming convention from his old NRM days. Did he build a backdoor into the entire Harmony Creek grid? Or did his Demons just... achieve root access? Implications: Terrifying. Also, potentially useful? Must investigate further after acquiring significantly more caffeine and possibly body armor.
+                    `, relatedTo: ['harmony-creek', 'sam', 'miller'] },
+                    {
+                        id: 'liar-king-prologue', name: 'Graustark: The Liar King Prologue', content: `Chapter 1: The Liar King's Last Breath
+
+The air in the ruins of the Old Graustark Armory was thick with the scent of damp earth and rust. In the center of the vast, decaying space sat a small frog, no bigger than a teacup, but with a presence that seemed to fill the entire chamber. His cork hat, a relic from a forgotten time, sat askew on his head. He held a lit cigarette between two webbed fingers, the smoke curling into impossible shapes before being swallowed by the gloom.
+
+"They ask what I remember," the frog's voice rumbled, a sound like stones grinding together, "But memory is a tool, not a truth. I tell them what they need to hear to keep the story moving. A hero here, a tragedy there. It's all just kindling for the fire."
+
+He looked at the boy, who held a glowing crystal ball in his hands, its light casting an unearthly glow on his face. The boy, who was both a new beginning and an old echo, was the key to what was next. The frog was the architect of the narrative, the one who decided which fragments of the past would be remembered, and which would be forgotten. He was the keeper of the new mythology, the Liar King, and his rule was absolute.
+`, relatedTo: ['graustark', 'liarKing'] },
+                    {
+                        id: 'static-blight-report', name: 'Report on the Smolvud Static Blight', content: `CONFIDENTIAL REPORT // SMOLVUD // PROJECT BLIGHT-01
+
+**OBSERVATION:** The "Static Blight" is a persistent, non-corporeal phenomenon observed in and around the coastal town of Smolvud, Oregon. It manifests as a series of black, geometric polygons that appear to 'overwrite' reality, creating visual and auditory glitches. It has been observed to affect not only man-made structures but also natural elements, such as pine trees and the Pacific coastline.
+
+**HYPOTHESIS:** The Blight is believed to be a form of data corruption or a "bleed-through" from the underlying SCUMM engine. The porous boundaries of the Smolvud reality, due to its unique history as a nexus point, allow these errors to manifest physically. The phenomenon is not random; it follows a chaotic but discernible pattern, suggesting a kind of failed creative or architectural process.
+
+**FIELD NOTES:** The Blight seems to be an invasive presence, growing and spreading over time. Subjects like Kai and Lena have shown an unusual ability to perceive and even interact with the Blight, with Lena's art and Kai's movement patterns appearing to create temporary 'voids' or patches of stability within the corrupted areas. This suggests that certain forms of "creative resistance" may be the only way to combat the Blight's advance.
+`, relatedTo: ['smolvud', 'kai', 'lena', 'finn'] },
+                    {
+                        id: 'nexcorp-primer', name: 'NexCorp™: A Corporate Primer', content: `**LIVE THE FUTURE, TODAY™**
+
+NexCorp™ is a global leader in integrated community management, providing comprehensive solutions for a seamless, predictable, and 'optimized' lifestyle. Our mission is to eliminate the variables of human existence through advanced monitoring, predictive analytics, and proactive intervention.
+
+**SYSTEM OVERVIEW:** The Harmony Creek Estates project is a flagship initiative, showcasing our patented NexOS™ operating system. This system manages everything from climate control to social interaction, with the ultimate goal of achieving 100% "Community Cohesion." Our patented Nex-Hum™ technology, a subliminal auditory frequency, is the backbone of the entire system, ensuring compliance and minimizing cognitive dissonance.
+
+**CHALLENGES:** Despite the system's operational efficiency, we have noted minor anomalies, or "glitches." These are primarily manifested in individuals who exhibit a low "Community Cohesion Score™." While our automated protocols are designed to correct such behavior, a recent surge in these anomalies suggests an external vector may be at play. We are actively investigating the possibility of rogue shareware, potentially originating from a legacy system.
+`, relatedTo: ['harmony-creek', 'sam', 'miller'] },
+                    {
+                        id: 'temple-demons', name: 'Manifesto on Frasier Temple’s Demons™', content: `**Frasier Temple’s Demons™ - Not an official NexCorp™ product. Obviously.**
+
+More like rogue shareware for the soul, circulating on encrypted P2P networks favored by disillusioned coders and existential philosophy majors.
+
+**ALLEGED FUNCTIONALITY:** Frasier Temple’s Demons™ are allegedly designed to 'enhance cognitive dissonance' and 'optimize irony detection' by introducing small, localized reality glitches. They are not malicious in the traditional sense; rather, they are a form of chaotic art, a digital spray paint on the perfect beige walls of the system.
+
+**KNOWN SIDE EFFECTS:** Existential dread, spontaneous monologuing, an inexplicable craving for artisanal pickles, and occasional reality glitches.
+
+**NOTE FROM THE ARCHIVIST:** The Demons were first theorized during the Graustark era as a way to challenge the rigid narratives of the past. It is now suspected that they have somehow survived the system refresh and achieved "root access" in the NexCorp™-controlled Harmony Creek reality, creating a backdoor for chaos in a world designed for total order.
+`, relatedTo: ['graustark', 'frasier', 'planned-community'] },
+                    {
+                        id: 'hum-report', name: 'NexCorp™ Report: Subliminal Auditory Frequency (Nex-Hum™)', content: `REPORT: AUDITORY ANOMALY // HARMONY CREEK ESTATES // FILE: Nex-Hum™_V4.1
+
+**ABSTRACT:** This document details the operational specifications, theoretical basis, and observed side-effects of the Nex-Hum™ technology. Designed as a foundational component of the NexOS™, the Hum is a low-amplitude, low-frequency psychoacoustic broadcast embedded in the ambient soundscape of Harmony Creek. Its primary function is to entrain the cognitive cycles of residents, promoting a state of passive compliance and reducing statistical outliers in behavioral and emotional data.
+
+**TECHNICAL SPECIFICATIONS:** The Hum operates on a 42-47 Hz sine wave, modulated with a proprietary, non-repeating algorithm that avoids habituation. It is broadcast from every NexCorp™ power substation and reinforced by the SmartFlow™ sprinkler systems, creating a seamless, omnipresent field. This frequency range was selected for its proven ability to inhibit limbic system activity and reduce the incidence of critical, abstract thought, effectively 'dulling' the edge of individuality.
+
+**OBSERVED ANOMALIES & DISSIDENT BEHAVIOR:** While statistically negligible, a recent uptick in "Hum-sensitive" individuals has been documented. These subjects report the Hum as a tangible, oppressive noise, often accompanied by headaches, anxiety, and a feeling of being 'watched'. The theory is that a small percentage of the population possesses a genetic or simulated predisposition to heightened auditory sensitivity, allowing them to perceive the Hum not as ambient noise, but as the raw, unfiltered sound of the simulation itself. These individuals, categorized as **'Auditory Anomalies,'** are correlated with lower "Community Cohesion Scores™" and a higher frequency of 'glitch' encounters. Further research is required to determine if these subjects are a random variation or an intentional backdoor from a legacy system.
+`, relatedTo: ['harmony-creek', 'sam', 'diego'] },
+                    {
+                        id: 'narrative-emergence-manifesto', name: 'Manifesto on Narrative Emergence', content: `**A. Temple, From the Warehouse Manifestos**
+
+The world isn’t a story. It’s a text file. And like any good text file, it’s susceptible to overflow, bleed-through, and the glorious, magnificent terror of spontaneous generation. They thought they could contain it, frame it with a beginning, middle, and end. But the SCUMM engine, in its wounded, beautiful imperfection, allows for what I call **Narrative Emergence**.
+
+Think of a system under stress. A city haunted by its own decay. A suburb where the air hums with unspoken dread. These aren't just settings; they're feedback loops. The system, to resolve the dissonance, doesn't always repair the broken threads. Sometimes, it weaves new ones. A minor character in one reality might become the hero of another. A throwaway line of dialogue in the 'Dickensian' era might manifest as a physical law in 'Smolvud'. This isn't a bug; it's a feature. It's the universe trying to tell a better story than the one its creator intended.
+
+My Demons? They are just a catalyst. A digital acid that eats at the seams of the old narrative, creating pockets of instability where new stories, new truths, can leak in. I am not the author. I am the editor, the one who introduces typos and grammatical errors in the hope that something beautiful and unplanned will be born from the chaos.
+`, relatedTo: ['graustark', 'frasier', 'concepts'] },
+                    {
+                        id: 'sam-glitch-journal', name: 'Journal of a Glitch', content: `**ENTRY 04-12-23 // 11:37 AM**
+
+It happened again. The pear tree. The one on Cypress Point that never drops fruit, a perfect, sterile monument to NexCorp’s efficiency. I was walking by, the hum in my ears like a constant, low-grade fever. And for a split second, the tree was... different. Not a tree. It was a wireframe model, a glowing green grid with no leaves, just vectors. The grass around it flickered, too, turning into a repeating texture of static before snapping back to unnervingly perfect St. Augustine. I didn't imagine it. The hummingbirds, the drone-birds, all froze for a fraction of a second, mid-air. I saw the pixels. I saw the seams.
+
+I wrote about it in my manifesto, the one Frasier Temple passed around, but seeing it is another thing entirely. It's not a hallucination. It's a peek behind the curtain. The world isn't just a place; it's a program running on a loop. And something is corrupting the code.
+
+**ENTRY 04-12-23 // 03:01 PM**
+
+Ran into Diego at the park. He said he saw it too. The tree. He described it perfectly, down to the "green wireframe" and the "static-y lawn." It's not just me. We're not anomalies. We're the debugger. We're the ones who see the errors. NexCorp calls it a low "Community Cohesion Score™" when we're disconnected. I think they're right. We're disconnected from their reality, not our own. I have to find more. I have to see what else is underneath this polished, beige lie.
+`, relatedTo: ['harmony-creek', 'sam', 'diego'] },
+                    {
+                        id: 'liar-king-analysis', name: 'Archival Analysis: The Liar King', content: `FILE: LIAR_KING_ANL-001 // STATUS: FRAGMENTED
+
+**SUBJECT:** The entity known colloquially as "The Liar King," a frog-like avatar.
+
+**ORIGIN:** The Liar King is not a native resident of any specific reality. Analysis of code fragments and narrative sediment suggests he is a recursive program, an echo of a forgotten maintenance routine from the original SCUMM Engine. His primary function, now corrupted, was to parse and organize data for future iterations. In the post-Collapse Graustark reality, this function has been reinterpreted as a form of narrative control.
+
+**FUNCTIONALITY:** The Liar King doesn't just tell lies; he actively archives and suppresses certain memories and narrative threads, reinforcing a particular version of history. He tells the inhabitants of Graustark the stories they need to believe to keep the cycle going. For instance, his narrative of Graustark as a beautiful, broken city of artists is a simplification that masks the brutal reality of its origin as a data-dump of the previous, failed world. He is the master of selective memory, ensuring that the inhabitants can only see the "past" through his curated lens. This makes him a powerful, if benignly destructive, force. He is the entropy of truth.
+`, relatedTo: ['graustark', 'liarKing'] }
+                ]
+            };
+
+            const appState = {
+                mainCategory: '',
+                subCategory: '',
+                chart: null,
+                tooltip: null
+            };
+
+            function initialize() {
+                appState.tooltip = document.getElementById('tooltip');
+                document.addEventListener('mousemove', (e) => {
+                    if (appState.tooltip.style.opacity === '1') {
+                        appState.tooltip.style.left = `${e.clientX + 15}px`;
+                        appState.tooltip.style.top = `${e.clientY + 15}px`;
+                    }
+                });
+                showMainCategory('cities');
+            }
+
+            function showMainCategory(category) {
+                if (appState.mainCategory === category) return;
+                appState.mainCategory = category;
+                
+                document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
+                document.getElementById(`nav-${category}`).classList.add('active');
+
+                document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
+                
+                const contentEl = document.getElementById(`content-${category}`);
+                contentEl.classList.add('active');
+                
+                document.getElementById('main-title').textContent = category.charAt(0).toUpperCase() + category.slice(1);
+                document.getElementById('main-subtitle').textContent = `Exploring the world of SCUMM through its ${category}.`;
+
+                if (category === 'cities') {
+                    renderCitiesView();
+                    showSubCategory('cities', 'dickensian');
+                } else if (category === 'characters') {
+                    renderCharactersView();
+                } else if (category === 'concepts') {
+                    renderConceptsView();
+                } else if (category === 'timeline') {
+                    renderTimelineView();
+                } else if (category === 'documents') {
+                    renderDocumentsView();
+                }
+            }
+
+            function showSubCategory(mainCategory, subCategory) {
+                appState.subCategory = subCategory;
+                document.querySelectorAll(`#content-${mainCategory} .sub-nav-link`).forEach(el => el.classList.remove('active'));
+                document.getElementById(`nav-sub-${subCategory}`).classList.add('active');
+
+                if (mainCategory === 'cities') {
+                    const data = loreData.cities[subCategory];
+                    document.getElementById('city-title').textContent = data.title;
+                    document.getElementById('city-summary').textContent = data.summary;
+                    const figuresList = document.getElementById('city-figures');
+                    figuresList.innerHTML = data.figures.map(figId => {
+                        const char = loreData.characters[figId];
+                        return `<li>${char ? char.name : figId}</li>`
+                    }).join('');
+                    const docLinks = document.getElementById('city-document-links');
+                    docLinks.innerHTML = data.documents.map(docId => {
+                        const doc = loreData.documents.find(d => d.id === docId);
+                        return `<button onclick="openDocumentViewer('${docId}')" class="bg-gray-700 hover:bg-gray-600 text-sm text-gray-200 px-3 py-1 rounded-full transition-colors">${doc.name}</button>`;
+                    }).join('');
+                }
+            }
+            
+            function renderCitiesView() {
+                const container = document.getElementById('content-cities');
+                container.innerHTML = `
+                    <p class="mb-8 text-gray-400">Explore the different digital incarnations of the city, from the Dickensian Era to the hyper-controlled suburbs of Harmony Creek.</p>
+                    <nav class="flex flex-wrap justify-center border-b border-gray-700 mb-8 -mx-2">
+                        <button class="sub-nav-link py-2 px-4 border-b-2 border-transparent mx-2" id="nav-sub-dickensian" onclick="showSubCategory('cities', 'dickensian')">Dickensian Era</button>
+                        <button class="sub-nav-link py-2 px-4 border-b-2 border-transparent mx-2" id="nav-sub-graustark" onclick="showSubCategory('cities', 'graustark')">Graustark</button>
+                        <button class="sub-nav-link py-2 px-4 border-b-2 border-transparent mx-2" id="nav-sub-smolvud" onclick="showSubCategory('cities', 'smolvud')">Smolvud</button>
+                        <button class="sub-nav-link py-2 px-4 border-b-2 border-transparent mx-2" id="nav-sub-harmony-creek" onclick="showSubCategory('cities', 'harmony-creek')">Harmony Creek</button>
+                    </nav>
+                    <div id="cities-content-detail" class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                        <div class="card rounded-lg p-6 md:p-8 shadow-lg">
+                            <h3 class="text-2xl font-bold mb-4 text-gray-100" id="city-title"></h3>
+                            <p class="text-lg leading-relaxed text-gray-300" id="city-summary"></p>
+                            <div class="mt-6">
+                                <h4 class="text-xl font-bold text-gray-100 mb-2">Key Figures</h4>
+                                <ul class="list-disc list-inside text-gray-400" id="city-figures"></ul>
+                            </div>
+                            <div class="mt-6">
+                                <h4 class="text-xl font-bold text-gray-100 mb-2">Related Documents</h4>
+                                <div class="flex flex-wrap gap-2" id="city-document-links"></div>
+                            </div>
+                        </div>
+                        <div class="card rounded-lg p-6 md:p-8 shadow-lg">
+                            <h3 class="text-2xl font-bold text-center mb-4 text-gray-100">Comparative Themes</h3>
+                            <div class="chart-container">
+                                <canvas id="city-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                renderCityChart();
+            }
+
+            function renderCityChart() {
+                if (appState.chart) appState.chart.destroy();
+                const ctxChart = document.getElementById('city-chart').getContext('2d');
+                appState.chart = new Chart(ctxChart, {
+                    type: 'radar',
+                    data: loreData.cities.chartData,
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: { r: { angleLines: { color: '#4b5563' }, grid: { color: '#374151' }, pointLabels: { font: { size: 12, family: "'Roboto Mono', monospace" }, color: '#d1d5db' }, ticks: { backdropColor: '#1a202c', color: '#9ca3af', stepSize: 2, max: 10, min: 0 } } },
+                        plugins: { legend: { labels: { color: '#d1d5db', font: { family: "'Inter', sans-serif" } } } }
+                    }
+                });
+            }
+            
+            function renderCharactersView() {
+                const container = document.getElementById('content-characters');
+                let nodesHTML = '';
+                for (const [id, char] of Object.entries(loreData.characters)) {
+                    nodesHTML += `<div class="relation-map-node text-lg font-mono" id="${id}" style="top: ${char.pos.y}%; left: ${char.pos.x}%; transform: translate(-50%, -50%);">${char.name}</div>`;
+                }
+
+                container.innerHTML = `
+                    <p class="mb-8 text-gray-400">Discover the key players and their connections across the different timelines and realities of SCUMM.</p>
+                    <div class="card rounded-lg p-6 md:p-8 shadow-lg">
+                        <h3 class="text-2xl font-bold text-center mb-4 text-gray-100">Character Relationship Map</h3>
+                        <p class="text-center text-sm text-gray-500 mb-6">Hover over a character to see their connections and learn more.</p>
+                        <div id="character-map-container" class="relative h-[60vh] w-full">
+                            <canvas id="relation-canvas" class="absolute inset-0 z-0"></canvas>
+                            ${nodesHTML}
+                        </div>
+                    </div>
+                `;
+                
+                const mapContainer = document.getElementById('character-map-container');
+                const canvas = document.getElementById('relation-canvas');
+                const ctx = canvas.getContext('2d');
+                
+                const characterNodes = {};
+
+                function drawConnections(highlightId = null) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    const highlightConnections = highlightId ? loreData.characters[highlightId].connections : [];
+
+                    ctx.strokeStyle = '#2d3748';
+                    ctx.lineWidth = 1;
+                    for (const [id, char] of Object.entries(loreData.characters)) {
+                        char.connections.forEach(connId => {
+                            if (characterNodes[connId] && id < connId) {
+                                ctx.beginPath();
+                                ctx.moveTo(characterNodes[id].x, characterNodes[id].y);
+                                ctx.lineTo(characterNodes[connId].x, characterNodes[connId].y);
+                                ctx.stroke();
+                            }
+                        });
+                    }
+                    
+                    if (highlightId) {
+                        ctx.strokeStyle = '#3b82f6';
+                        ctx.lineWidth = 2.5;
+                        highlightConnections.forEach(connId => {
+                            if (characterNodes[connId]) {
+                                ctx.beginPath();
+                                ctx.moveTo(characterNodes[highlightId].x, characterNodes[highlightId].y);
+                                ctx.lineTo(characterNodes[connId].x, characterNodes[connId].y);
+                                ctx.stroke();
+                            }
+                        });
+                    }
+                }
+
+                function updateMap() {
+                    canvas.width = mapContainer.offsetWidth;
+                    canvas.height = mapContainer.offsetHeight;
+                    document.querySelectorAll('.relation-map-node').forEach(node => {
+                        characterNodes[node.id] = {
+                            x: node.offsetLeft + node.offsetWidth / 2,
+                            y: node.offsetTop + node.offsetHeight / 2
+                        };
+                    });
+                    drawConnections();
+                }
+
+                document.querySelectorAll('.relation-map-node').forEach(node => {
+                    node.addEventListener('mouseenter', (e) => {
+                        const nodeId = e.target.id;
+                        document.querySelectorAll('.relation-map-node').forEach(n => {
+                            n.classList.toggle('highlight', loreData.characters[nodeId].connections.includes(n.id) || n.id === nodeId);
+                        });
+                        drawConnections(nodeId);
+                        
+                        const charData = loreData.characters[nodeId];
+                        appState.tooltip.innerHTML = `
+                            <h4 class="font-bold text-blue-400">${charData.name}</h4>
+                            <p class="text-xs font-mono text-gray-400">${charData.role}</p>
+                            <p class="text-sm mt-1">${charData.description}</p>
+                            ${charData.documents.length > 0 ? `<div class="mt-2"><h5 class="text-xs font-bold text-gray-300">Docs:</h5> ${charData.documents.map(docId => { const doc = loreData.documents.find(d => d.id === docId); return `<button onclick="openDocumentViewer('${docId}')" class="text-xs underline hover:text-blue-400">${doc.name}</button>`}).join(', ')}</div>` : ''}
+                        `;
+                        appState.tooltip.style.opacity = 1;
+                    });
+
+                    node.addEventListener('mouseleave', () => {
+                        document.querySelectorAll('.relation-map-node').forEach(n => n.classList.remove('highlight'));
+                        drawConnections();
+                        appState.tooltip.style.opacity = 0;
+                    });
+                });
+
+                const resizeObserver = new ResizeObserver(updateMap);
+                resizeObserver.observe(mapContainer);
+                updateMap();
+            }
+
+            function renderConceptsView() {
+                const container = document.getElementById('content-concepts');
+                container.innerHTML = `
+                    <p class="mb-8 text-gray-400">Unpack the core terminology and technological concepts that define the laws and rules of this unique reality.</p>
+                    <div id="concepts-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                `;
+                const conceptsListEl = document.getElementById('concepts-list');
+                for (const [key, value] of Object.entries(loreData.concepts)) {
+                    const conceptCard = document.createElement('div');
+                    conceptCard.className = 'concept-item card rounded-lg p-6 cursor-pointer shadow-md';
+                    conceptCard.innerHTML = `<h4 class="text-xl font-bold text-gray-100">${key}</h4><p class="text-base mt-2 text-gray-400 hidden">${value}</p>`;
+                    conceptCard.addEventListener('click', () => {
+                        conceptCard.querySelector('p').classList.toggle('hidden');
+                    });
+                    conceptsListEl.appendChild(conceptCard);
+                }
+            }
+
+            function renderTimelineView() {
+                const container = document.getElementById('content-timeline');
+                container.innerHTML = `
+                    <p class="mb-8 text-gray-400">A chronological breakdown of the key eras and events that have shaped the SCUMM universe.</p>
+                    <div class="timeline card rounded-lg p-6 md:p-8 shadow-lg">
+                        <div id="timeline-list"></div>
+                    </div>
+                `;
+                const timelineListEl = document.getElementById('timeline-list');
+                loreData.timeline.forEach((item) => {
+                    const timelineItem = document.createElement('div');
+                    timelineItem.className = 'timeline-item cursor-pointer';
+                    timelineItem.innerHTML = `
+                        <h4 class="text-xl font-bold text-gray-100">${item.title} <span class="text-base font-mono text-gray-500">(${item.period})</span></h4>
+                        <div class="timeline-details mt-2 ml-4 hidden">
+                            <p class="text-base text-gray-300">${item.summary}</p>
+                            <ul class="list-disc list-inside text-gray-400 mt-2">
+                                ${item.events.map(event => `<li>${event}</li>`).join('')}
+                            </ul>
+                            <div class="flex flex-wrap gap-2 mt-4">
+                                ${item.documents.map(docId => {
+                                    const doc = loreData.documents.find(d => d.id === docId);
+                                    return `<button onclick="openDocumentViewer('${docId}')" class="bg-gray-700 hover:bg-gray-600 text-sm text-gray-200 px-3 py-1 rounded-full transition-colors">${doc.name}</button>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                    timelineItem.addEventListener('click', (e) => {
+                        document.querySelectorAll('.timeline-item').forEach(el => el.classList.remove('active'));
+                        e.currentTarget.classList.add('active');
+                        document.querySelectorAll('.timeline-details').forEach(el => el.classList.add('hidden'));
+                        timelineItem.querySelector('.timeline-details').classList.remove('hidden');
+                    });
+                    timelineListEl.appendChild(timelineItem);
+                });
+            }
+
+            function renderDocumentsView() {
+                const container = document.getElementById('content-documents');
+                container.innerHTML = `
+                    <p class="mb-8 text-gray-400">View the source documents that provide a deeper look into the world of SCUMM.</p>
+                    <div id="documents-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+                `;
+                const documentsListEl = document.getElementById('documents-list');
+                loreData.documents.forEach(doc => {
+                    const docCard = document.createElement('div');
+                    docCard.className = 'card rounded-lg p-6 shadow-md';
+                    docCard.innerHTML = `
+                        <h4 class="text-xl font-bold text-gray-100">${doc.name}</h4>
+                        <p class="text-sm text-gray-400 mt-2">Related to: ${doc.relatedTo.map(relId => {
+                            const relatedItem = loreData.cities[relId] || loreData.characters[relId] || loreData.concepts[relId];
+                            return relatedItem ? (relatedItem.name || relId) : relId;
+                        }).join(', ')}</p>
+                        <button onclick="openDocumentViewer('${doc.id}')" class="mt-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors">View Document</button>
+                    `;
+                    documentsListEl.appendChild(docCard);
+                });
+            }
+
+            function openDocumentViewer(documentId) {
+                const doc = loreData.documents.find(d => d.id === documentId);
+                if (!doc) {
+                    console.error('Document not found:', documentId);
+                    return;
+                }
+                document.getElementById('document-title').textContent = doc.name;
+                document.getElementById('document-content').textContent = doc.content;
+                document.getElementById('document-viewer-modal').classList.remove('hidden');
+            }
+
+            function closeDocumentViewer() {
+                document.getElementById('document-viewer-modal').classList.add('hidden');
+            }
+
+            window.addEventListener('load', initialize);
+        </script>
+    </body>
+    </html>
